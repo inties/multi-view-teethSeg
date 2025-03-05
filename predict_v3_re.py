@@ -33,7 +33,7 @@ flyby = fbf.FlyByGenerator(sphere, resolution=args.resolution, visualize=False, 
 surf_actor = fbf.GetNormalsActor(unit_surf)
 flyby.addActor(surf_actor)
 print("FlyBy features ...")
-img_np = flyby.getFlyBy()  # (92, resolution, resolution, 4)
+img_np = flyby.getFlyBy(save_images=True)  # (92, resolution, resolution, 4)
 print("Number of sphere points:", sphere.GetNumberOfPoints())
 print("Input shape before prediction:", img_np.shape)
 flyby.removeActors()

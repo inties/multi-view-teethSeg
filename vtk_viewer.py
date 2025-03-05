@@ -12,9 +12,9 @@ def visualize_vtk_with_labels(vtk_file_path):
 
     # 2. 获取点数据和 UniversalID 标签
     point_data = polydata.GetPointData()
-    labels_array = point_data.GetArray("UniversalID")
+    labels_array = point_data.GetArray("RegionId")
     if labels_array is None:
-        print("错误：未找到'UniversalID'标签数组")
+        print("错误：未找到'RegionId'标签数组")
         return
     
     labels = vtk_to_numpy(labels_array)

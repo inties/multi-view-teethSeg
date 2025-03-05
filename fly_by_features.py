@@ -60,8 +60,7 @@ class FlyByGenerator():
 	def addActor(self, actor):
 		self.renderer.AddActor(actor)
 
-	def getFlyBy(self, sphere_points = None, view_up_points = None, focal_points = None):
-
+	def getFlyBy(self, sphere_points=None, view_up_points=None, focal_points=None, save_images=False, output_dir="flyby_images"):
 		number_of_points = 0
 		if sphere_points is None:
 			sphere_points = vtk_to_numpy(self.sphere.GetPoints().GetData()) 
@@ -69,7 +68,7 @@ class FlyByGenerator():
 		else:
 			number_of_points = len(sphere_points)
 
-		print("number of points : ",number_of_points)
+		print("number of points : ", number_of_points)
 		camera = self.renderer.GetActiveCamera()
 
 		if self.visualize:
@@ -82,31 +81,33 @@ class FlyByGenerator():
 
 		img_seq = []
 
-		for i in range(number_of_points):
+		# 如果需要保存图像，创建输出目录
+		if save_images:
+			import matplotlib.pyplot as plt
+			import os
+			os.makedirs(output_dir, exist_ok=True)
 
+		for i in range(number_of_points):
 			sphere_point = sphere_points[i]
 			camera.SetPosition(sphere_point[0], sphere_point[1], sphere_point[2])
 
-			if(view_up_points is None):
+			if view_up_points is None:
 				sphere_point_v = normalize_vector(sphere_point)
-
-				if(abs(sphere_point_v[2]) != 1):
+				if abs(sphere_point_v[2]) != 1:
 					camera.SetViewUp(0, 0, -1)
-				elif(sphere_point_v[2] == 1):
+				elif sphere_point_v[2] == 1:
 					camera.SetViewUp(1, 0, 0)
-				elif(sphere_point_v[2] == -1):
+				elif sphere_point_v[2] == -1:
 					camera.SetViewUp(-1, 0, 0)
 			else:
 				view_up_point = view_up_points[i]
 				camera.SetViewUp(view_up_point[0], view_up_point[1], view_up_point[2])
 
-			
 			if focal_points is None:
 				camera.SetFocalPoint(0, 0, 0)
 			else:
 				focal_point = focal_points[i]
 				camera.SetFocalPoint(focal_point[0], focal_point[1], focal_point[2])
-				
 
 			self.renderer.ResetCameraClippingRange()
 
@@ -115,14 +116,12 @@ class FlyByGenerator():
 			img_o = self.windowToImageN.GetOutput()
 
 			img_o_np = vtk_to_numpy(img_o.GetPointData().GetScalars())
-
-			if self.rescale_features:
-				img_o_np = 2*(img_o_np/255) - 1
+			# 归一化 RGB 和 Alpha 通道到 [0, 1]
+			img_o_np = img_o_np.astype(np.float32) / 255.0
 
 			num_components = img_o.GetNumberOfScalarComponents()
 
 			if self.use_z:
-				
 				self.windowFilterZ.Modified()
 				self.windowFilterZ.Update()                
 				img_z = self.windowFilterZ.GetOutput()
@@ -131,28 +130,35 @@ class FlyByGenerator():
 				img_z_np = img_z_np.reshape([-1, 1])
 
 				z_near, z_far = camera.GetClippingRange()
-
-				img_z_np = 2.0*z_far*z_near / (z_far + z_near - (z_far - z_near)*(2.0*img_z_np - 1.0))
+				img_z_np = 2.0 * z_far * z_near / (z_far + z_near - (z_far - z_near) * (2.0 * img_z_np - 1.0))
 				img_z_np[img_z_np > (z_far - 0.1)] = 0
+				img_z_np = img_z_np / z_far  # 归一化深度到 [0, 1]
 
-				if self.rescale_features:
-					img_z_np /= z_far
-
-				if(self.split_z):
+				if self.split_z:
 					img_np = np.concatenate([img_o_np, img_z_np], axis=-1)
 					num_components += 1
 				else:
-					if not self.rescale_features:
-						img_z_np /= z_far
-						
 					img_np = np.multiply(img_o_np, img_z_np)
 			else:
 				img_np = img_o_np
 
-			img_seq.append(img_np.reshape([d for d in img_o.GetDimensions() if d != 1] + [num_components]))
+			# 如果需要 [-1, 1] 范围，单独处理
+			if self.rescale_features:
+				img_np = 2 * img_np - 1  # 将 [0, 1] 映射到 [-1, 1]
+
+			img_reshaped = img_np.reshape([d for d in img_o.GetDimensions() if d != 1] + [num_components])
+			img_seq.append(img_reshaped)
+
+			# 保存 FlyBy 图像到指定路径
+			if save_images:
+				img_to_save = img_reshaped[:, :, :3]  # 只取 RGB 通道
+				if self.rescale_features:
+					img_to_save = (img_to_save + 1) / 2  # 将 [-1, 1] 转换回 [0, 1]
+				plt.imsave(f"{output_dir}/flyby_view_{i}.png", img_to_save)
+				if i == number_of_points - 1:
+					print(f"Saved {number_of_points} FlyBy images to {output_dir}")
 
 		return np.array(img_seq)
-
 def main(args):
 
 	filenames = []
@@ -268,7 +274,7 @@ def main(args):
 		
 					flyby.addActor(surf_actor)
 					
-					out_np = flyby.getFlyBy()
+					out_np = flyby.getFlyBy(save_images=args.save_flyby_images, output_dir="flyby_images")
 					out_img = GetImage(out_np)
 
 					fiberName = "fiber_" +args.subject + "_" + str(i_cell) + ".nrrd"
@@ -322,7 +328,7 @@ def main(args):
 			
 			if surf_actor is not None:
 				flyby.addActor(surf_actor)
-			out_np = flyby.getFlyBy()
+			out_np = flyby.getFlyBy(save_images=args.save_flyby_images, output_dir="flyby_images")
 
 			if(args.extract_components != None):
 				out_np = out_np[:,:,:,args.extract_components[0]:args.extract_components[1]]
@@ -335,7 +341,7 @@ def main(args):
 
 				surf_actor = GetPointIdMapActor(surf)
 				flyby_features.addActor(surf_actor)
-				out_point_ids_rgb_np = flyby_features.getFlyBy()
+				out_point_ids_rgb_np = flyby_features.getFlyBy(save_images=args.save_flyby_images, output_dir="flyby_images")
 
 				if(args.out_point_id):
 					if ( not args.concatenate ):
@@ -481,6 +487,7 @@ if __name__ == '__main__':
 	output_params.add_argument('--ow', type=int, help='Overwrite outputs', default=1)
 	output_params.add_argument('--concatenate', type=int, help='0 for multiple output files, 1 for single output file', default=1)
 	output_params.add_argument('--verbose', type=int, help='Print messages', default=0)
+	output_params.add_argument('--save_flyby_images', type=int, help='Save FlyBy images to disk (0 = no, 1 = yes)', default=0)  # 新增参数
 
 	args = parser.parse_args()
 
